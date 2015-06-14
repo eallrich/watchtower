@@ -1,5 +1,7 @@
 import platform
 import os
+import random
+import subprocess
 import time
 
 import psutil
@@ -87,6 +89,35 @@ def network():
             pipe.gauge(metric, value)
 
 
+def os_status():
+    # Unlike most stats, we don't need up-to-the-second reports on these.
+    # We're going to sample the data approximately once every ten cycles.
+    if random.random() > 0.1:
+        return
+
+    with statsd.pipeline() as pipe:
+        # Restart required?
+        if os.path.isfile('/var/run/reboot-required'):
+            pipe.gauge('os.restart_required', 1)
+        else:
+            pipe.gauge('os.restart_required', 0)
+
+        # Updates availale?
+        apt_update_check = '/usr/lib/update-notifier/apt-check'
+        if os.path.isfile(apt_update_check):
+            process = subprocess.Popen(apt_update_check, stderr=subprocess.PIPE)
+            _, response = process.communicate()
+            regular, security = response.split(';')
+            pipe.gauge('os.updates.regular', regular)
+            pipe.gauge('os.updates.security', security)
+
+        # Uptime
+        # TODO: Consider replacing this check with the uptime package in pip
+        with open('/proc/uptime', 'rb') as f:
+            uptime, _ = f.readline().split()
+            pipe.gauge('os.uptime', uptime)
+
+
 start = used = 0
 metric = ns('watchtower', 'gathering')
 while True:
@@ -95,6 +126,7 @@ while True:
         loadavg()
         ram()
         network()
+        os_status()
     used = int(time.time()) - start
     try:
         time.sleep(10 - used) # sleep for the remainder of the interval
