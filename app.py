@@ -4,8 +4,10 @@ import random
 import subprocess
 import time
 
+import ntplib
 import psutil
 from statsd import StatsClient
+import uptime
 
 host = platform.node().replace('.', '_')
 
@@ -91,8 +93,8 @@ def network():
 
 def os_status():
     # Unlike most stats, we don't need up-to-the-second reports on these.
-    # We're going to sample the data approximately once every ten cycles.
-    if random.random() > 0.1:
+    # We're going to sample the data approximately once every eighty cycles.
+    if random.random() > 0.0125:
         return
 
     with statsd.pipeline() as pipe:
@@ -112,10 +114,15 @@ def os_status():
             pipe.gauge('os.updates.security', security)
 
         # Uptime
-        # TODO: Consider replacing this check with the uptime package in pip
-        with open('/proc/uptime', 'rb') as f:
-            uptime, _ = f.readline().split()
-            pipe.gauge('os.uptime', uptime)
+        pipe.gauge('os.uptime', uptime.uptime())
+
+        # Host clock offset
+        try:
+            response = ntplib.NTPClient().request('pool.ntp.org')
+        except ntplib.NTPException:
+            pass
+        else:
+            pipe.gauge('os.ntp.offset', response.offset)
 
 
 start = used = 0
